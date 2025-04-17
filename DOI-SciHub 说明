@@ -1,0 +1,168 @@
+
+好的，这是一份关于你创建的 "DOI-SciHub" Chrome 扩展的文档，以及一个用于指导 LLM 重建此插件的 Prompt。
+
+---
+
+## DOI-SciHub 插件文档
+
+### 1. 插件概述
+
+DOI-SciHub 是一个 Chrome 浏览器扩展，旨在简化科研人员和学生通过 DOI (Digital Object Identifier) 访问学术文献的过程。它能自动识别网页中的 DOI 链接，并提供多种处理方式，包括直接跳转到 Sci-Hub、打开原始链接或在后台直接下载文献 PDF。此外，插件还具备强大的自动重命名功能，可以将下载的 PDF 文件按照“年份 - 标题 - 期刊”的格式保存，方便文献管理。
+
+### 2. 主要功能
+
+*   **DOI 链接拦截**: 自动检测用户在网页上点击的 DOI 链接（包括 `doi.org` 链接或文本中符合 DOI 格式的链接），并阻止其默认跳转行为。
+*   **多种操作模式**: 用户可以在插件弹出窗口中选择点击 DOI 链接后的行为：
+    *   **跳转到 Sci-Hub**: 在新的浏览器标签页中打开对应的 Sci-Hub 页面。
+    *   **打开原链接**: 在新的浏览器标签页中打开原始的 DOI 链接（通常是期刊官网或 DOI 解析服务）。
+    *   **直接下载 (后台进行)**: 在后台静默访问 Sci-Hub，提取 PDF 下载链接和文献信息，并直接触发浏览器下载，全程无需打开新的 Sci-Hub 窗口。
+*   **PDF 自动重命名**:
+    *   对于通过“直接下载”模式获取的 PDF，插件会在下载开始前根据后台提取的信息自动重命名。
+    *   对于在 Sci-Hub 页面手动点击下载按钮或链接下载的 PDF，插件也会尝试获取来源页信息，并进行自动重命名。
+    *   重命名格式为：`年份 - 标题 - 期刊.pdf` （文件名会进行清理，去除或替换非法字符，并限制长度）。
+*   **Sci-Hub 域名配置**:
+    *   提供多个常用的 Sci-Hub 预设域名供用户选择。
+    *   允许用户输入自定义的 Sci-Hub 域名，以应对域名变更。
+*   **设置弹出窗口**: 点击浏览器工具栏的插件图标，会弹出一个简洁的设置界面，方便用户配置操作模式和 Sci-Hub 域名。所有设置会通过 `chrome.storage.sync` 保存在用户的 Chrome 账户中，并在不同设备间同步。
+
+### 3. 实现原理
+
+插件主要由以下几个部分协同工作：
+
+*   **`manifest.json`**: 扩展的配置文件。定义了扩展的名称、版本、描述、所需权限（如访问标签页、下载、存储、脚本注入、后台运行、使用 Offscreen API 等）、内容脚本、后台脚本、弹出窗口页面和图标等。
+*   **`content.js` (内容脚本)**: 在用户浏览的网页上下文中运行。通过事件监听器捕获页面上的点击事件，检查被点击的元素是否为 DOI 链接。如果是，则阻止默认行为，并将链接 URL 通过消息传递发送给后台脚本。
+*   **`popup.html` & `popup.js` (弹出窗口)**: 定义了用户点击插件图标时看到的设置界面 (`popup.html`) 及其交互逻辑 (`popup.js`)。`popup.js` 负责从 `chrome.storage.sync` 读取和保存用户的设置（操作模式、Sci-Hub 域名），并更新界面显示。
+*   **`background.js` (后台脚本/Service Worker)**: 扩展的核心。它在后台持续运行（或按需唤醒），负责：
+    *   监听来自 `content.js` 的 `openPaper` 消息。
+    *   根据存储的用户设置和收到的 URL，执行 `handleOpenPaper` 函数中的相应逻辑（打开新标签页或启动直接下载流程）。
+    *   实现“直接下载”模式：创建临时的、非激活状态的标签页加载 Sci-Hub -> 等待加载 -> 注入 `triggerDownloadInTab` 脚本 -> 接收该脚本发回的 `downloadAndRenameRequest` 消息（包含直接 PDF URL 和文献信息） -> 缓存信息 (`pendingRenames`) 并启动下载 -> 在下载监听器中使用缓存信息重命名 -> 延迟关闭临时标签页。
+    *   监听 `chrome.downloads.onDeterminingFilename` 事件，在下载即将开始时触发重命名逻辑。
+    *   重命名逻辑：优先检查 `pendingRenames` 缓存；如果缓存未命中，则检查下载来源 (`referrer`) 是否为 Sci-Hub 且文件类型为 PDF。若是，则 `fetch` 来源页 HTML -> 发送给 `offscreen.js` 解析 -> 接收解析结果 -> 生成并建议新文件名。
+    *   管理 Offscreen 文档的创建 (`ensureOffscreenDocument`)。
+*   **`offscreen.html` & `offscreen.js` (离屏文档)**: 由于 Manifest V3 的 Service Worker 无法直接访问 DOM API，需要创建一个 Offscreen 文档来执行 DOM 解析任务。`background.js` 会将获取到的 Sci-Hub 页面 HTML 字符串发送给 `offscreen.js`。`offscreen.js` 使用 `DOMParser` 解析 HTML，并运行 `extractSciHubInfoFromDOM` 函数提取文献信息，然后将结果返回给 `background.js`。
+*   **`icons` 文件夹**: 存放插件在不同场景下显示的图标。
+
+### 4. 关键策略说明
+
+*   **信息提取策略 (`extractSciHubInfoFromDOM` in `offscreen.js` & `triggerDownloadInTab` in `background.js`)**:
+    1.  **优先解析引用文本**: 尝试查找 ID 为 `citation` 的元素，或页面中包含 `doi:` 且文本最长的 `div`, `p`, `td` 元素。获取其文本内容，然后通过正则表达式和字符串处理提取年份 `(YYYY)`，并尝试根据最后一个 `. ` (点+空格) 或次优的 `.` 分割标题和期刊。
+    2.  **后备使用 Meta 标签**: 如果无法从引用文本获取完整信息，则尝试查找 `name` 属性为 `citation_title`, `citation_journal_title`, `citation_date`, `citation_online_date` 的 `<meta>` 标签，并提取其 `content` 属性。
+    3.  **URL 年份后备**: 如果年份信息仍然缺失，尝试从 Sci-Hub 页面的 URL 中提取四位数字年份。
+    4.  **数据清理**: 对提取到的年、标题、期刊进行清理，移除文件名非法字符 (`\\/:*?\"<>|`)，移除末尾的点和空格，并确保结果不为空。
+*   **直接下载与重命名耦合**: “直接下载”模式下，通过在临时标签页注入脚本，尝试同时获取**直接的 PDF 下载链接**和**文献信息**。只有两者都成功获取时，才发送 `downloadAndRenameRequest` 消息，让 `background.js` 将信息和 URL 关联起来存入 `pendingRenames` 缓存。这样，在 `onDeterminingFilename` 事件触发时，可以通过下载 URL 快速查找到对应的文献信息进行重命名，避免了再次解析 HTML 的开销和潜在的失败。
+*   **Offscreen API 应用**: 对于非“直接下载”模式（如手动点击下载），`onDeterminingFilename` 触发时无法直接获取文献信息。此时，利用 `downloadItem.referrer` (下载来源页 URL) 获取 Sci-Hub 页面的 HTML，然后通过 `chrome.runtime.sendMessage` 将 HTML 发送到 Offscreen 文档进行解析，从而实现后台环境下的 DOM 操作。
+*   **延时处理**: 在“直接下载”模式中，设置了两个关键延时：等待临时页面加载的延时和关闭临时页面前的延时。这些延时是为了确保页面有足够时间渲染以及下载请求能被浏览器处理，其值可能需要根据实际网络情况调整。
+
+### 5. 使用与安装
+
+*   **使用**: 在网页上直接点击 DOI 链接即可触发插件功能。点击浏览器工具栏上的插件图标可以打开设置面板，配置操作模式和 Sci-Hub 域名。
+*   **安装 (本地开发)**:
+    1.  打开 Chrome，地址栏输入 `chrome://extensions`。
+    2.  打开右上角的“开发者模式”。
+    3.  点击左上角的“加载已解压的扩展程序”。
+    4.  选择包含 `manifest.json` 的插件项目文件夹。
+
+### 6. 已知限制与注意事项
+
+*   **依赖 Sci-Hub 页面结构**: 插件的信息提取和下载链接查找逻辑强依赖于当前 Sci-Hub 网站的 HTML 结构。如果 Sci-Hub 更新页面布局，可能导致插件功能失效，需要更新代码适配。
+*   **延时不确定性**: “直接下载”模式中的延时是估计值，网络波动或 Sci-Hub 响应慢可能导致超时失败。
+*   **反爬虫机制**: 如果 Sci-Hub 部署更严格的反爬虫机制，后台的 `fetch` 请求或临时标签页的访问可能被阻止。
+*   **信息提取可能失败**: 并非所有 Sci-Hub 页面都包含完整或格式规范的文献信息，可能导致提取不全或重命名不准确。
+
+---
+
+## 指导 LLM 构建此插件的 Prompt
+
+```text
+请创建一个名为 "DOI-SciHub" 的 Chrome 浏览器扩展 (Manifest V3)，实现以下功能：
+
+**核心功能:**
+
+1.  **拦截 DOI 点击**: 在用户浏览的任何网页上，自动检测并拦截对 DOI 链接的点击（识别 `https://doi.org/` 或 `https://dx.doi.org/` 开头的链接，以及符合 `10.xxxx/xxxx` 格式的链接）。阻止其默认跳转。
+2.  **提供三种操作模式**:
+    *   **跳转到 Sci-Hub**: 在新标签页打开用户配置的 Sci-Hub 域名 + DOI 的链接。
+    *   **打开原链接**: 在新标签页打开用户点击的原始 DOI 链接。
+    *   **直接下载 (后台进行)**: 在后台静默打开一个非激活的临时 Sci-Hub 标签页，从中提取 PDF 的直接下载链接和文献信息（年份、标题、期刊），然后自动触发下载，并将文件重命名为 "年份 - 标题 - 期刊.pdf"。此过程用户不应看到新的 Sci-Hub 窗口弹出。
+3.  **自动 PDF 重命名**:
+    *   对于“直接下载”模式，使用后台提取的信息重命名。
+    *   对于用户在 Sci-Hub 页面上触发的 PDF 下载（例如，在“跳转到 Sci-Hub”模式下手动点击下载），也应尝试通过 Offscreen API 解析来源页 HTML 来提取信息并重命名。
+    *   重命名格式："年份 - 标题 - 期刊.pdf"。文件名需进行清理（移除 `\\/:*?\"<>|` 等非法字符，处理空格和点号）。
+4.  **Sci-Hub 域名配置**:
+    *   提供一个弹出设置页面 (`popup.html`)。
+    *   允许用户选择预设的 Sci-Hub 域名（如 `sci-hub.se`, `sci-hub.st` 等）。
+    *   允许用户输入并保存自定义的 Sci-Hub 域名 (输入框，需简单校验 `http://` 或 `https://` 开头)。
+5.  **设置持久化**: 使用 `chrome.storage.sync` 保存用户的操作模式和 Sci-Hub 域名选择。
+
+**技术实现要求:**
+
+1.  **文件结构**:
+    *   `manifest.json`
+    *   `background.js` (Service Worker)
+    *   `content.js`
+    *   `popup.html`
+    *   `popup.js`
+    *   `offscreen.html`
+    *   `offscreen.js`
+    *   `icons/` 文件夹 (包含 16x16, 32x32, 48x48, 128x128 像素的 PNG 图标)
+2.  **`manifest.json`**:
+    *   `manifest_version: 3`
+    *   必要的 `name`, `version`, `description`。
+    *   `permissions`: `activeTab`, `contextMenus` (可选，如果未来要加右键菜单), `downloads`, `storage`, `notifications` (用于错误提示), `offscreen`, `scripting`.
+    *   `host_permissions`: 包含多个 Sci-Hub 域名 (`*://*.sci-hub.se/*`, `*://*.sci-hub.st/*` 等) 以及 `*://doi.org/*`, `*://dx.doi.org/*`。
+    *   `content_scripts`: 注入 `content.js` 到 `<all_urls>`，`run_at: document_end`。
+    *   `background`: 指定 `service_worker: background.js`。
+    *   `action`: 指定 `default_popup: popup.html` 和 `default_icon`。
+    *   `icons`: 指定各尺寸图标路径。
+    *   `minimum_chrome_version: "109"` (因为 Offscreen API)。
+3.  **`content.js`**:
+    *   使用事件委托监听 `document` 的 `click` 事件。
+    *   向上遍历 DOM 查找被点击的 `<a>` 标签。
+    *   检查 `href` 是否匹配 DOI 链接规则。
+    *   若匹配，调用 `event.preventDefault()`。
+    *   使用 `chrome.runtime.sendMessage` 发送 `{ action: 'openPaper', url: linkHref }` 给 `background.js`。
+4.  **`popup.html` / `popup.js`**:
+    *   HTML 提供单选按钮选择操作模式、下拉菜单选择预设域名、文本框输入自定义域名。
+    *   JS 在 `DOMContentLoaded` 时从 `chrome.storage.sync` 获取设置并初始化界面。
+    *   为各控件添加事件监听器，当用户更改设置时，将新值保存回 `chrome.storage.sync`。
+5.  **`background.js`**:
+    *   实现 `onMessage` 监听器，处理 `openPaper` 消息。
+    *   实现 `handleOpenPaper(originalUrl)` 函数：
+        *   从 `storage` 读取 `openMode` 和 `currentDomain`。
+        *   根据 `openMode` 执行相应逻辑：
+            *   `scihub`: 提取 DOI，构建 Sci-Hub URL，`chrome.tabs.create` 打开新标签页。
+            *   `original`: `chrome.tabs.create` 打开 `originalUrl`。
+            *   `directDownload`: 提取 DOI，构建 Sci-Hub URL。使用 `async/await` 执行：
+                *   `chrome.tabs.create({ url: scihubUrl, active: false })` 创建临时非激活标签页。
+                *   等待延时 (例如 3000ms) `await new Promise(resolve => setTimeout(resolve, 3000));`。
+                *   `chrome.scripting.executeScript({ target: { tabId: tempTab.id }, function: triggerDownloadInTab });` 注入脚本。
+                *   设置另一个延时 (例如 1000ms) 后 `chrome.tabs.remove(tempTab.id)` 关闭临时标签页。
+    *   实现 `onMessage` 监听器，处理来自注入脚本的 `downloadAndRenameRequest` 消息：
+        *   将消息中的 `url` (PDF URL) 和 `info` (文献信息) 存入全局对象 `pendingRenames` (例如 `pendingRenames[message.url] = message.info;`)。
+        *   使用 `chrome.downloads.download({ url: message.url })` 启动下载。
+    *   实现 `chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => { ... });`：
+        *   检查 `pendingRenames[downloadItem.url]` 是否存在。若存在且 `info` 有效，则使用 `info` 生成文件名，调用 `suggest({ filename: newFilename, conflictAction: 'uniquify' })` 并 `return true`。处理后删除 `pendingRenames` 条目。
+        *   若缓存未命中，检查 `downloadItem.referrer` 是否匹配 Sci-Hub 域名且 `downloadItem.mime === 'application/pdf'`。
+        *   若匹配，则 `fetch(downloadItem.referrer)` 获取 HTML -> 调用 `ensureOffscreenDocument()` -> `chrome.runtime.sendMessage({ target: 'offscreen', action: 'parseHtml', html: html, referrerUrl: downloadItem.referrer })` 发送给 Offscreen -> 在回调中接收 `info` -> 若 `info` 有效，生成文件名，调用 `suggest` 并 `return true`。
+        *   其他情况 `return false`。
+    *   实现 `extractDoiFromUrl(url)` 辅助函数。
+    *   实现 `sanitizeFilename(filename)` 辅助函数。
+    *   实现 `ensureOffscreenDocument(path)` 辅助函数，用于创建和管理 Offscreen 文档。
+    *   实现 `triggerDownloadInTab()` 函数（此函数将在 Sci-Hub 页面上下文执行）：
+        *   尝试使用多种策略（解析引用文本、查找 meta 标签、解析 URL）从当前页面 (`document`) 提取 `year`, `title`, `journal` 信息。
+        *   尝试查找 PDF 的**直接下载链接**（检查 `<a>` 标签的 `href` 是否含 `.pdf`，或 `embed` 标签的 `src`）。
+        *   **如果同时成功提取了完整的 `info` 对象 和 找到了直接的 `downloadUrl`**，则 `chrome.runtime.sendMessage({ action: 'downloadAndRenameRequest', url: downloadUrl, info: info });`。
+        *   如果未能找到直接 URL，但找到了下载按钮并模拟了点击 (`element.click()`)，则不发送此消息（让 `onDeterminingFilename` + Offscreen 处理）。
+6.  **`offscreen.html`**: 一个最简单的 HTML 页面，仅用于加载 `offscreen.js`。
+7.  **`offscreen.js`**:
+    *   实现 `chrome.runtime.onMessage.addListener((message, sender, sendResponse) => { ... });`。
+    *   检查 `message.target === 'offscreen'` 和 `message.action === 'parseHtml'`。
+    *   创建 `DOMParser`，用 `message.html` 解析为 `doc`。
+    *   调用 `extractSciHubInfoFromDOM(doc, message.referrerUrl)` 函数提取信息。
+    *   `sendResponse(info)` 返回结果 (包含 `year`, `title`, `journal` 的对象或 `null`)。
+    *   `return true` 保持消息通道。
+    *   实现 `extractSciHubInfoFromDOM(doc, referrerUrl)` 函数，包含多种信息提取策略（同 `triggerDownloadInTab` 中的提取逻辑，但作用于传入的 `doc`）。
+8.  **错误处理**: 在关键异步操作（如 `tabs.create`, `scripting.executeScript`, `fetch`, `sendMessage`）后添加 `.catch()` 处理，并使用 `chrome.notifications.create` 显示简单的错误提示给用户。
+9.  **代码风格**: 使用 ES6+ 语法（如 `async/await`, `let`/`const`），代码结构清晰，在复杂逻辑处添加必要的注释。
+
+请根据以上要求生成插件的完整代码文件。
+```

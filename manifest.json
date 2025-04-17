@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "DOI-SciHub",
+  "version": "1.0",
+  "description": "1. 点击 DOI 自动跳转到 Sci-Hub 2. 自动重命名 pdf 文件 3. 点击DOI 直接下载pdf",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "downloads",
+    "storage",
+    "notifications",
+    "offscreen",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.sci-hub.se/*",
+    "*://*.sci-hub.st/*",
+    "*://*.sci-hub.ru/*",
+    "*://*.sci-hub.tw/*",
+    "*://*.sci-hub.hk/*",
+    "*://*.sci-hub.is/*",
+    "*://*.sci-hub.ws/*",
+    "*://doi.org/*",
+    "*://api.crossref.org/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "minimum_chrome_version": "109",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/ravenround.png",
+      "32": "icons/ravenround.png",
+      "48": "icons/ravenround.png",
+      "128": "icons/ravenround.png"
+    }
+  },
+  "icons": {
+    "16": "icons/ravenround.png",
+    "32": "icons/ravenround.png",
+    "48": "icons/ravenround.png",
+    "128": "icons/ravenround.png"
+  }
+}

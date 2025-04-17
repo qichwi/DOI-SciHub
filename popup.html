@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<!-- 声明这是一个HTML5文档 -->
+<html lang="zh-CN">
+<!-- 指定网页语言为中文 -->
+<head>
+  <!-- 头部区域，包含网页的元数据和样式 -->
+  <meta charset="UTF-8">
+  <!-- 设置字符编码为UTF-8，支持中文显示 -->
+  <title>DOI-SCI 插件</title>
+  <!-- 设置网页标题 -->
+  <style>
+    /* CSS样式部分，定义网页的外观 */
+    body {
+      width: 300px;  /* 设置弹出窗口宽度为300像素 */
+      padding: 15px; /* 设置内边距为15像素，使内容不会贴边 */
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif; /* 设置字体，优先使用苹方和微软雅黑 */
+    }
+    .section {
+      margin-bottom: 20px;  /* 每个区块底部外边距20像素 */
+      padding-bottom: 15px; /* 每个区块底部内边距15像素 */
+      border-bottom: 1px solid #eee; /* 添加一条浅灰色底部边框，分隔不同区块 */
+    }
+    h3 {
+      color: #4285f4; /* 设置标题颜色为Google蓝 */
+      margin-top: 0;  /* 移除标题顶部外边距 */
+    }
+    label {
+      display: block; /* 让标签独占一行 */
+      margin: 6px 0;  /* 标签上下外边距6像素 */
+    }
+    input[type="text"], select {
+      width: 100%;    /* 输入框和下拉菜单宽度占满容器 */
+      padding: 5px;   /* 输入框内边距5像素 */
+      margin: 5px 0;  /* 输入框上下外边距5像素 */
+    }
+    button {
+      margin-top: 10px;    /* 按钮顶部外边距10像素 */
+      padding: 8px 15px;   /* 按钮内边距，上下8像素，左右15像素 */
+      background: #4285f4; /* 按钮背景色为Google蓝 */
+      color: white;        /* 按钮文字颜色为白色 */
+      border: none;        /* 移除按钮边框 */
+      border-radius: 4px;  /* 按钮圆角4像素 */
+      cursor: pointer;     /* 鼠标悬停时显示手型光标 */
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 操作模式选择区域 -->
+  <div class="section">
+    <h3>操作模式</h3>
+    <!-- 单选按钮组，用于选择打开方式 -->
+    <label>
+      <input type="radio" name="openMode" id="modeScihub" value="scihub">
+      <!-- 单选按钮，name属性相同表示它们是一组，只能选择一个 -->
+      跳转到 Sci-Hub
+    </label>
+    <label>
+      <input type="radio" name="openMode" id="modeOriginal" value="original">
+      打开原链接
+    </label>
+    <label>
+      <input type="radio" name="openMode" id="modeDirectDownload" value="directDownload">
+      直接下载 (后台进行)
+    </label>
+  </div>
+
+
+  <!-- Sci-Hub 域名设置区域 -->
+  <div class="section">
+    <h3>Sci-Hub 域名设置</h3>
+    <label for="scihubDomain">预设域名:</label>
+    <!-- 下拉菜单，用于选择预设的Sci-Hub域名 -->
+    <select id="scihubDomain">
+      <option value="https://sci-hub.se">sci-hub.se</option>
+      <option value="https://sci-hub.st">sci-hub.st</option>
+      <option value="https://sci-hub.ru">sci-hub.ru</option>
+      <option value="https://sci-hub.tw">sci-hub.tw</option>
+      <option value="https://sci-hub.hk">sci-hub.hk</option>
+      <option value="https://sci-hub.is">sci-hub.is</option>
+      <option value="https://sci-hub.ws">sci-hub.ws</option>
+      <!-- 可根据需要添加更多 -->
+    </select>
+    <label>或自定义域名:</label>
+    <!-- 文本输入框，用于输入自定义的Sci-Hub域名 -->
+    <input type="text" id="customDomain" placeholder="https://">
+  </div>
+
+
+  <!-- 引入JavaScript文件，处理交互逻辑 -->
+  <script src="popup.js"></script>
+</body>
+</html>
