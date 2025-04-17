@@ -37,16 +37,16 @@
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icons/ravenround.png",
-      "32": "icons/ravenround.png",
-      "48": "icons/ravenround.png",
-      "128": "icons/ravenround.png"
+      "16": "ravenround.png",
+      "32": "ravenround.png",
+      "48": "ravenround.png",
+      "128": "ravenround.png"
     }
   },
   "icons": {
-    "16": "icons/ravenround.png",
-    "32": "icons/ravenround.png",
-    "48": "icons/ravenround.png",
-    "128": "icons/ravenround.png"
+    "16": "ravenround.png",
+    "32": "ravenround.png",
+    "48": "ravenround.png",
+    "128": "ravenround.png"
   }
 }
